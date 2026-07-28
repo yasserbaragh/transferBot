@@ -1,0 +1,19 @@
+# RSS sources to ingest.
+#
+# tier1 = trusted journalist / insider outlet (e.g. Fabrizio Romano, CaughtOffside)
+# tier2 = general news aggregator (e.g. BBC, Guardian, Marca)
+#
+# Fill in / confirm URLs marked TODO before running.
+
+sources:
+  - name: bbc_sport_football
+    url: http://feeds.bbci.co.uk/sport/football/rss.xml
+    tier: tier2
+
+  - name: guardian_football
+    url: https://www.theguardian.com/football/rss
+    tier: tier2
+
+  - name: fabrizio_romano_substack
+    url: "TODO: confirm Fabrizio Romano Substack RSS URL"
+    tier: tier1
