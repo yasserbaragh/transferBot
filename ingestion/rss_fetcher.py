@@ -46,6 +46,18 @@ def _parse_published(entry) -> datetime | None:
 
 def fetch_source(source: dict) -> list[RawArticle]:
     parsed = feedparser.parse(source["url"])
+
+    status = getattr(parsed, "status", None)
+    bozo = getattr(parsed, "bozo", 0)
+    bozo_exc = getattr(parsed, "bozo_exception", None)
+    print(
+        f"[fetch] {source['name']}: status={status} bozo={bozo} "
+        f"entries={len(parsed.entries)}"
+        + (f" bozo_exception={bozo_exc!r}" if bozo else "")
+    )
+    if not parsed.entries:
+        print(f"[warn] {source['name']}: 0 entries returned, check URL/blocking/UA")
+
     articles = []
     for entry in parsed.entries:
         articles.append(
