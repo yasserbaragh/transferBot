@@ -27,7 +27,7 @@ sources:
     tier: tier2
 
   - name: world soccer
-    url: https://www.worldsoccer.com/feed
+    url: https://www.worldsoccer.com/feedd
     tier: tier2
 
   - name: marca
