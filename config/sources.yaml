@@ -6,6 +6,14 @@
 # Fill in / confirm URLs marked TODO before running.
 
 sources:
+  - name: caughtoffside
+    url: https://caughtoffside.com/feed
+    tier: tier1
+
+  - name: fabrizio_romano_daily_briefing
+    url: https://thedailybriefing.io/feed
+    tier: tier1
+
   - name: bbc_sport_football
     url: http://feeds.bbci.co.uk/sport/football/rss.xml
     tier: tier2
@@ -16,16 +24,16 @@ sources:
 
   - name: 90 min
     url: https://www.90min.com/posts.rss
-    tier: tier 2
+    tier: tier2
 
   - name: world soccer
     url: https://www.worldsoccer.com/feed
-    tier: tier 2
-  
+    tier: tier2
+
   - name: marca
     url: https://e00-marca.uecdn.es/rss/en/index.xml
-    tier: tier 2
+    tier: tier2
 
   - name: footballFancast
     url: https://www.footballfancast.com/feed/
-    tier: tier 2
+    tier: tier2

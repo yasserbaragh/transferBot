@@ -14,6 +14,8 @@ from dateutil import parser as dateutil_parser
 
 SOURCES_PATH = Path(__file__).resolve().parent.parent / "config" / "sources.yaml"
 
+ALLOWED_TIERS = {"tier1", "tier2"}
+
 
 @dataclass
 class RawArticle:
@@ -28,7 +30,17 @@ class RawArticle:
 def load_sources(path: Path = SOURCES_PATH) -> list[dict]:
     with open(path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    return config["sources"]
+    sources = config["sources"]
+
+    for source in sources:
+        tier = source.get("tier")
+        if tier not in ALLOWED_TIERS:
+            raise ValueError(
+                f"source {source.get('name')!r} has invalid tier {tier!r}, "
+                f"expected one of {sorted(ALLOWED_TIERS)}"
+            )
+
+    return sources
 
 
 def _parse_published(entry) -> datetime | None:
