@@ -28,7 +28,7 @@ from ingestion.rss_fetcher import RawArticle, fetch_all_sources
 # before relying on it - model names and tiers change over time and this
 # is just the cheapest tier known at the time this was written. Override
 # via the GEMINI_MODEL env var without touching code.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 
 # Articles per request. Keeps each prompt small while cutting the number
 # of calls (and therefore quota usage) roughly BATCH_SIZE-fold vs one

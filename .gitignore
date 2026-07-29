@@ -1,2 +1,4 @@
 claude.md
 .env
+__pycache__
+venv/
