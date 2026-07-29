@@ -14,6 +14,18 @@ sources:
     url: https://www.theguardian.com/football/rss
     tier: tier2
 
-  - name: fabrizio_romano_substack
-    url: "TODO: confirm Fabrizio Romano Substack RSS URL"
-    tier: tier1
+  - name: 90 min
+    url: https://www.90min.com/posts.rss
+    tier: tier 2
+
+  - name: world soccer
+    url: https://www.worldsoccer.com/feed
+    tier: tier 2
+  
+  - name: marca
+    url: https://e00-marca.uecdn.es/rss/en/index.xml
+    tier: tier 2
+
+  - name: footballFancast
+    url: https://www.footballfancast.com/feed/
+    tier: tier 2
