@@ -18,11 +18,17 @@ import json
 import os
 from dataclasses import dataclass, field
 
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
 from ingestion.relevance_filter import filter_transfer_related
 from ingestion.rss_fetcher import RawArticle, fetch_all_sources
+
+# Loads GEMINI_API_KEY (and anything else in .env) into the process
+# environment. Called at import time so it's in place before _client()
+# reads os.environ, regardless of which script imports this module.
+load_dotenv()
 
 # Confirm this against your Gemini account's current model/pricing list
 # before relying on it - model names and tiers change over time and this

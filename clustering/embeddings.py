@@ -13,6 +13,9 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from ingestion.llm_filter import ExtractedRumor
+from ingestion.llm_filter import extract_rumors
+from ingestion.relevance_filter import filter_transfer_related
+from ingestion.rss_fetcher import fetch_all_sources
 
 # Small, fast, good enough for short news snippets. Override via env var
 # without touching code if a different local model is ever preferred.
@@ -45,16 +48,11 @@ def embed_rumor(rumor: ExtractedRumor) -> np.ndarray:
 
 
 if __name__ == "__main__":
-    sample = ExtractedRumor(
-        source_name="test",
-        source_tier="tier1",
-        link="https://example.com",
-        title="Player X close to Club Y move, medical scheduled",
-        is_transfer_rumor=True,
-        player="Player X",
-        clubs=["Club Y"],
-        confidence=0.9,
-    )
-    vec = embed_rumor(sample)
-    print(f"embedding shape: {vec.shape}, dtype: {vec.dtype}")
-    print(vec[:5])
+    candidates = filter_transfer_related(fetch_all_sources())
+    rumors = extract_rumors(candidates)
+    print(f"{len(rumors)} confirmed transfer rumors, embedding...\n")
+
+    for r in rumors[:10]:
+        vec = embed_rumor(r)
+        print(f"[{r.source_tier}] {_rumor_text(r)}")
+        print(f"  embedding shape={vec.shape} first5={vec[:5]}\n")

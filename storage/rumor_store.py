@@ -1,20 +1,30 @@
 """Structured storage for extracted transfer rumors.
 
-Storage-only for now: every extracted rumor is saved as its own new
-cluster with a single sighting. Matching a new rumor against an
-existing cluster ("same rumor, new source") isn't implemented yet -
-that's the next piece, wired in on top of this storage.
+Every saved rumor is embedded and compared against recently-updated
+clusters (clustering/matcher.py). A close enough match gets attached as
+a new sighting on the existing cluster ("same rumor, new source"); no
+close match creates a brand-new cluster ("genuinely new rumor").
 """
 
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
+
+from clustering.embeddings import embed_rumor
+from clustering.matcher import find_best_match
 from ingestion.llm_filter import ExtractedRumor
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "rumors.db"
+
+# How far back to look for clusters a new rumor could attach to. Old,
+# stale rumors shouldn't keep matching new unrelated ones just because
+# they're semantically similar (e.g. the same player linked to the same
+# club in different transfer windows).
+RECENT_WINDOW_DAYS = 14
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS rumor_clusters (
@@ -43,11 +53,9 @@ CREATE TABLE IF NOT EXISTS rumor_sightings (
     seen_at TEXT NOT NULL
 );
 """
-# embedding: unused placeholder until the clustering piece is wired in -
-#   will hold a serialized vector for similarity matching.
 # outcome: unused placeholder for later model training - meant to record
-#   whether the rumor actually happened (e.g. "confirmed" / "denied") once
-#   that's known. Nothing writes to this column yet.
+# whether the rumor actually happened (e.g. "confirmed" / "denied") once
+# that's known. Nothing writes to this column yet.
 
 
 @contextmanager
@@ -62,54 +70,109 @@ def _connect(path: Path):
         conn.close()
 
 
-def save_rumor(rumor: ExtractedRumor, path: Path = DB_PATH) -> int:
-    """Save an extracted rumor as a brand-new cluster with one sighting.
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-    No matching against existing clusters yet - every call creates a new
-    cluster. That comes with the clustering piece, built on top of this.
-    """
-    now = datetime.now(timezone.utc).isoformat()
-    with _connect(path) as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO rumor_clusters
-                (player, clubs, representative_text, first_seen,
-                 last_updated, confidence, tiers_seen)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                rumor.player,
-                json.dumps(rumor.clubs),
-                rumor.title,
-                now,
-                now,
-                rumor.confidence,
-                json.dumps([rumor.source_tier]),
-            ),
-        )
-        cluster_id = cursor.lastrowid
 
-        conn.execute(
-            """
-            INSERT INTO rumor_sightings
-                (cluster_id, source_name, source_tier, link, title,
-                 fee, wage, llm_confidence, seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                cluster_id,
-                rumor.source_name,
-                rumor.source_tier,
-                rumor.link,
-                rumor.title,
-                rumor.fee,
-                rumor.wage,
-                rumor.confidence,
-                now,
-            ),
-        )
+def _pack_embedding(embedding: np.ndarray) -> bytes:
+    return embedding.astype(np.float32).tobytes()
+
+
+def _unpack_embedding(blob: bytes) -> np.ndarray:
+    return np.frombuffer(blob, dtype=np.float32)
+
+
+def _recent_cluster_embeddings(conn: sqlite3.Connection) -> list[tuple[int, np.ndarray]]:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=RECENT_WINDOW_DAYS)).isoformat()
+    rows = conn.execute(
+        """
+        SELECT id, embedding FROM rumor_clusters
+        WHERE last_updated >= ? AND embedding IS NOT NULL
+        """,
+        (cutoff,),
+    ).fetchall()
+    return [(row[0], _unpack_embedding(row[1])) for row in rows]
+
+
+def _insert_sighting(conn: sqlite3.Connection, cluster_id: int, rumor: ExtractedRumor, now: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO rumor_sightings
+            (cluster_id, source_name, source_tier, link, title,
+             fee, wage, llm_confidence, seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            cluster_id,
+            rumor.source_name,
+            rumor.source_tier,
+            rumor.link,
+            rumor.title,
+            rumor.fee,
+            rumor.wage,
+            rumor.confidence,
+            now,
+        ),
+    )
+
+
+def _create_cluster(conn: sqlite3.Connection, rumor: ExtractedRumor, embedding: np.ndarray) -> int:
+    now = _now()
+    cursor = conn.execute(
+        """
+        INSERT INTO rumor_clusters
+            (player, clubs, representative_text, embedding, first_seen,
+             last_updated, confidence, tiers_seen)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            rumor.player,
+            json.dumps(rumor.clubs),
+            rumor.title,
+            _pack_embedding(embedding),
+            now,
+            now,
+            rumor.confidence,
+            json.dumps([rumor.source_tier]),
+        ),
+    )
+    cluster_id = cursor.lastrowid
+    _insert_sighting(conn, cluster_id, rumor, now)
     return cluster_id
 
 
-def save_rumors(rumors: list[ExtractedRumor], path: Path = DB_PATH) -> list[int]:
+def _attach_sighting(conn: sqlite3.Connection, cluster_id: int, rumor: ExtractedRumor) -> None:
+    now = _now()
+    row = conn.execute(
+        "SELECT tiers_seen FROM rumor_clusters WHERE id = ?", (cluster_id,)
+    ).fetchone()
+    tiers_seen = json.loads(row[0])
+    tiers_seen.append(rumor.source_tier)
+    conn.execute(
+        "UPDATE rumor_clusters SET last_updated = ?, tiers_seen = ? WHERE id = ?",
+        (now, json.dumps(tiers_seen), cluster_id),
+    )
+    _insert_sighting(conn, cluster_id, rumor, now)
+
+
+def save_rumor(rumor: ExtractedRumor, path: Path = DB_PATH) -> tuple[int, bool]:
+    """Save a rumor, matching it against recent clusters first.
+
+    Returns (cluster_id, is_new_cluster) - is_new_cluster is False when
+    the rumor was attached to an existing cluster as a new sighting
+    instead of starting one.
+    """
+    embedding = embed_rumor(rumor)
+    with _connect(path) as conn:
+        candidates = _recent_cluster_embeddings(conn)
+        match = find_best_match(embedding, candidates)
+        if match is not None:
+            cluster_id, _score = match
+            _attach_sighting(conn, cluster_id, rumor)
+            return cluster_id, False
+        cluster_id = _create_cluster(conn, rumor, embedding)
+        return cluster_id, True
+
+
+def save_rumors(rumors: list[ExtractedRumor], path: Path = DB_PATH) -> list[tuple[int, bool]]:
     return [save_rumor(r, path=path) for r in rumors]
