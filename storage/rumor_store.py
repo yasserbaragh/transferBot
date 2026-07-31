@@ -17,6 +17,7 @@ import numpy as np
 from clustering.embeddings import embed_rumor
 from clustering.matcher import find_best_match
 from ingestion.llm_filter import ExtractedRumor
+from scoring.credibility import compute_confidence
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "rumors.db"
 
@@ -116,6 +117,19 @@ def _insert_sighting(conn: sqlite3.Connection, cluster_id: int, rumor: Extracted
     )
 
 
+def _sightings_for_cluster(conn: sqlite3.Connection, cluster_id: int) -> list[tuple[str, str, float]]:
+    rows = conn.execute(
+        "SELECT source_name, source_tier, llm_confidence FROM rumor_sightings WHERE cluster_id = ?",
+        (cluster_id,),
+    ).fetchall()
+    return [(row[0], row[1], row[2]) for row in rows]
+
+
+def _recompute_confidence(conn: sqlite3.Connection, cluster_id: int) -> None:
+    confidence = compute_confidence(_sightings_for_cluster(conn, cluster_id))
+    conn.execute("UPDATE rumor_clusters SET confidence = ? WHERE id = ?", (confidence, cluster_id))
+
+
 def _create_cluster(conn: sqlite3.Connection, rumor: ExtractedRumor, embedding: np.ndarray) -> int:
     now = _now()
     cursor = conn.execute(
@@ -138,6 +152,7 @@ def _create_cluster(conn: sqlite3.Connection, rumor: ExtractedRumor, embedding: 
     )
     cluster_id = cursor.lastrowid
     _insert_sighting(conn, cluster_id, rumor, now)
+    _recompute_confidence(conn, cluster_id)
     return cluster_id
 
 
@@ -153,6 +168,7 @@ def _attach_sighting(conn: sqlite3.Connection, cluster_id: int, rumor: Extracted
         (now, json.dumps(tiers_seen), cluster_id),
     )
     _insert_sighting(conn, cluster_id, rumor, now)
+    _recompute_confidence(conn, cluster_id)
 
 
 def save_rumor(rumor: ExtractedRumor, path: Path = DB_PATH) -> tuple[int, bool]:
