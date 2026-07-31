@@ -9,6 +9,7 @@ close match creates a brand-new cluster ("genuinely new rumor").
 import json
 import sqlite3
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -192,3 +193,73 @@ def save_rumor(rumor: ExtractedRumor, path: Path = DB_PATH) -> tuple[int, bool]:
 
 def save_rumors(rumors: list[ExtractedRumor], path: Path = DB_PATH) -> list[tuple[int, bool]]:
     return [save_rumor(r, path=path) for r in rumors]
+
+
+@dataclass
+class SightingSummary:
+    source_name: str
+    source_tier: str
+    link: str
+    title: str
+    fee: str | None
+    wage: str | None
+
+
+@dataclass
+class ClusterDigest:
+    id: int
+    player: str | None
+    clubs: list[str]
+    confidence: float
+    tiers_seen: list[str]
+    first_seen: str
+    last_updated: str
+    sightings: list[SightingSummary] = field(default_factory=list)
+
+
+def get_clusters_since(since: str, path: Path = DB_PATH) -> list[ClusterDigest]:
+    """Clusters first created or last updated at/after `since` (ISO
+    timestamp), each with its sightings - the set a periodic report
+    should cover. Ordered by confidence, most credible first.
+    """
+    with _connect(path) as conn:
+        cluster_rows = conn.execute(
+            """
+            SELECT id, player, clubs, confidence, tiers_seen, first_seen, last_updated
+            FROM rumor_clusters
+            WHERE last_updated >= ?
+            ORDER BY confidence DESC
+            """,
+            (since,),
+        ).fetchall()
+
+        clusters = []
+        for row in cluster_rows:
+            cluster_id = row[0]
+            sighting_rows = conn.execute(
+                """
+                SELECT source_name, source_tier, link, title, fee, wage
+                FROM rumor_sightings WHERE cluster_id = ?
+                ORDER BY seen_at
+                """,
+                (cluster_id,),
+            ).fetchall()
+            clusters.append(
+                ClusterDigest(
+                    id=cluster_id,
+                    player=row[1],
+                    clubs=json.loads(row[2]),
+                    confidence=row[3],
+                    tiers_seen=json.loads(row[4]),
+                    first_seen=row[5],
+                    last_updated=row[6],
+                    sightings=[
+                        SightingSummary(
+                            source_name=s[0], source_tier=s[1], link=s[2],
+                            title=s[3], fee=s[4], wage=s[5],
+                        )
+                        for s in sighting_rows
+                    ],
+                )
+            )
+        return clusters
