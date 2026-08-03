@@ -25,7 +25,7 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "rumors.db"
 # How far back to look for clusters a new rumor could attach to. Old,
 # stale rumors shouldn't keep matching new unrelated ones just because
 # they're semantically similar (e.g. the same player linked to the same
-# club in different transfer windows).
+# club in different transfer windows)
 RECENT_WINDOW_DAYS = 14
 
 _SCHEMA = """
