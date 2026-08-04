@@ -13,7 +13,7 @@ from pathlib import Path
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "rumors.db"
 
 # No report has run yet before this - using it as "since" means the
-# first-ever report covers every cluster currently stored.
+# first-ever report covers every cluster currently stored
 _EPOCH = "1970-01-01T00:00:00+00:00"
 
 _SCHEMA = """
