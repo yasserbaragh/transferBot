@@ -29,6 +29,7 @@ def _connect(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     try:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(_SCHEMA)
         yield conn
         conn.commit()
