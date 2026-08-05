@@ -1,6 +1,5 @@
-claude.md
 .env
 __pycache__
 venv/
 data/
-TODO.md
+DEPLOYMENT_NOTES.md
