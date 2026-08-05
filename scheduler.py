@@ -3,6 +3,8 @@ embedding/clustering -> storage -> report -> delivery pipeline on a
 recurring interval (CLAUDE.md steps 1-7).
 """
 
+import os
+
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from delivery.discord_webhook import send_digest
@@ -63,13 +65,18 @@ def _deliver_report() -> None:
 
 
 if __name__ == "__main__":
-    scheduler = BlockingScheduler()
-    scheduler.add_job(run_pipeline, "interval", minutes=RUN_INTERVAL_MINUTES)
+    if os.environ.get("GITHUB_ACTIONS"):
+        # GitHub Actions' cron drives the interval - run once and let the
+        # workflow exit, rather than looping inside the job.
+        run_pipeline()
+    else:
+        scheduler = BlockingScheduler()
+        scheduler.add_job(run_pipeline, "interval", minutes=RUN_INTERVAL_MINUTES)
 
-    print(f"Running once now, then every {RUN_INTERVAL_MINUTES} minutes. Ctrl+C to stop.")
-    run_pipeline()
+        print(f"Running once now, then every {RUN_INTERVAL_MINUTES} minutes. Ctrl+C to stop.")
+        run_pipeline()
 
-    try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
-        print("Scheduler stopped.")
+        try:
+            scheduler.start()
+        except (KeyboardInterrupt, SystemExit):
+            print("Scheduler stopped.")
