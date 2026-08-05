@@ -54,12 +54,14 @@ CREATE TABLE IF NOT EXISTS rumor_sightings (
     fee TEXT,
     wage TEXT,
     llm_confidence REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'rumor',
     seen_at TEXT NOT NULL
 );
 """
-# outcome: unused placeholder for later model training - meant to record
-# whether the rumor actually happened (e.g. "confirmed" / "denied") once
-# that's known. Nothing writes to this column yet.
+# outcome: set to "confirmed" once any sighting on the cluster is
+# classified "confirmed" by the LLM extraction step (see
+# ingestion/llm_filter.py). Never downgraded back to null/"rumor" -
+# a deal reported confirmed doesn't get un-confirmed by later sightings.
 
 
 def _migrate_legacy_schema(path: Path) -> None:
@@ -80,6 +82,15 @@ def _migrate_legacy_schema(path: Path) -> None:
         print(f"[migrate] old rumor_clusters schema detected - moved {path.name} to {backup.name}, starting fresh")
 
 
+def _migrate_add_status_column(conn: sqlite3.Connection) -> None:
+    """Older DBs predate the "status" column - add it in place rather than
+    rebuilding, since (unlike the legacy schema migration) this is a
+    straightforward additive change with a safe default."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(rumor_sightings)").fetchall()}
+    if "status" not in columns:
+        conn.execute("ALTER TABLE rumor_sightings ADD COLUMN status TEXT NOT NULL DEFAULT 'rumor'")
+
+
 @contextmanager
 def _connect(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +99,7 @@ def _connect(path: Path):
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(_SCHEMA)
+        _migrate_add_status_column(conn)
         yield conn
         conn.commit()
     finally:
@@ -141,8 +153,8 @@ def _insert_sighting(conn: sqlite3.Connection, cluster_id: int, rumor: Extracted
         """
         INSERT INTO rumor_sightings
             (cluster_id, source_name, source_tier, link, title,
-             fee, wage, llm_confidence, seen_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             fee, wage, llm_confidence, status, seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             cluster_id,
@@ -153,17 +165,18 @@ def _insert_sighting(conn: sqlite3.Connection, cluster_id: int, rumor: Extracted
             rumor.fee,
             rumor.wage,
             rumor.confidence,
+            rumor.status,
             now,
         ),
     )
 
 
-def _sightings_for_cluster(conn: sqlite3.Connection, cluster_id: int) -> list[tuple[str, str, float]]:
+def _sightings_for_cluster(conn: sqlite3.Connection, cluster_id: int) -> list[tuple[str, str, float, str]]:
     rows = conn.execute(
-        "SELECT source_name, source_tier, llm_confidence FROM rumor_sightings WHERE cluster_id = ?",
+        "SELECT source_name, source_tier, llm_confidence, status FROM rumor_sightings WHERE cluster_id = ?",
         (cluster_id,),
     ).fetchall()
-    return [(row[0], row[1], row[2]) for row in rows]
+    return [(row[0], row[1], row[2], row[3]) for row in rows]
 
 
 def _recompute_confidence(conn: sqlite3.Connection, cluster_id: int) -> None:
@@ -177,8 +190,8 @@ def _create_cluster(conn: sqlite3.Connection, rumor: ExtractedRumor, embedding: 
         """
         INSERT INTO rumor_clusters
             (players, current_club, linked_clubs, representative_text, embedding,
-             first_seen, last_updated, confidence, tiers_seen)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             first_seen, last_updated, confidence, tiers_seen, outcome)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             json.dumps(rumor.players),
@@ -190,6 +203,7 @@ def _create_cluster(conn: sqlite3.Connection, rumor: ExtractedRumor, embedding: 
             now,
             rumor.confidence,
             json.dumps([rumor.source_tier]),
+            "confirmed" if rumor.status == "confirmed" else None,
         ),
     )
     cluster_id = cursor.lastrowid
@@ -222,6 +236,8 @@ def _attach_sighting(conn: sqlite3.Connection, cluster_id: int, rumor: Extracted
         """,
         (now, json.dumps(tiers_seen), json.dumps(players), current_club, json.dumps(linked_clubs), cluster_id),
     )
+    if rumor.status == "confirmed":
+        conn.execute("UPDATE rumor_clusters SET outcome = 'confirmed' WHERE id = ?", (cluster_id,))
     _insert_sighting(conn, cluster_id, rumor, now)
     _recompute_confidence(conn, cluster_id)
 
@@ -269,6 +285,7 @@ class ClusterDigest:
     tiers_seen: list[str]
     first_seen: str
     last_updated: str
+    outcome: str | None = None
     sightings: list[SightingSummary] = field(default_factory=list)
 
 
@@ -280,7 +297,7 @@ def get_clusters_since(since: str, path: Path = DB_PATH) -> list[ClusterDigest]:
     with _connect(path) as conn:
         cluster_rows = conn.execute(
             """
-            SELECT id, players, current_club, linked_clubs, confidence, tiers_seen, first_seen, last_updated
+            SELECT id, players, current_club, linked_clubs, confidence, tiers_seen, first_seen, last_updated, outcome
             FROM rumor_clusters
             WHERE last_updated >= ?
             ORDER BY confidence DESC
@@ -309,6 +326,7 @@ def get_clusters_since(since: str, path: Path = DB_PATH) -> list[ClusterDigest]:
                     tiers_seen=json.loads(row[5]),
                     first_seen=row[6],
                     last_updated=row[7],
+                    outcome=row[8],
                     sightings=[
                         SightingSummary(
                             source_name=s[0], source_tier=s[1], link=s[2],

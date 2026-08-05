@@ -17,14 +17,24 @@ TIER2_SOURCE_WEIGHT = 0.08
 MAX_TIER1_BOOST = 0.55
 MAX_TIER2_BOOST = 0.25
 
+# A done deal is normally announced once, definitively - it doesn't
+# naturally accumulate repeat coverage across our configured feeds the
+# way a developing rumor does, so it shouldn't need the same
+# multi-source corroboration to be treated as credible. One sighting
+# tagged "confirmed" (club/official announcement language) raises the
+# floor straight to the "Confident" bucket instead of "Weak".
+CONFIRMED_FLOOR = 0.80
+
 # Buckets for display - see confidence_label().
 CONFIDENT_THRESHOLD = 0.75
 FIFTY_FIFTY_THRESHOLD = 0.45
 
 
-def compute_confidence(sightings: list[tuple[str, str, float]]) -> float:
-    """sightings: (source_name, source_tier, llm_confidence) for every
-    sighting attached to a cluster so far (including the newest one).
+def compute_confidence(sightings: list[tuple[str, str, float, str]]) -> float:
+    """sightings: (source_name, source_tier, llm_confidence, status) for
+    every sighting attached to a cluster so far (including the newest
+    one). status is "rumor" or "confirmed", as classified by the LLM
+    extraction step.
 
     Confidence is driven by corroboration - how many *distinct* sources,
     and which tiers, are reporting the same rumor - not by the LLM's own
@@ -45,6 +55,9 @@ def compute_confidence(sightings: list[tuple[str, str, float]]) -> float:
     corroboration = SINGLE_SOURCE_FLOOR
     corroboration += min(len(tier1_sources) * TIER1_SOURCE_WEIGHT, MAX_TIER1_BOOST)
     corroboration += min(len(tier2_sources) * TIER2_SOURCE_WEIGHT, MAX_TIER2_BOOST)
+
+    if any(s[3] == "confirmed" for s in sightings):
+        corroboration = max(corroboration, CONFIRMED_FLOOR)
 
     avg_llm_confidence = sum(s[2] for s in sightings) / len(sightings)
     extraction_ceiling = avg_llm_confidence + 0.30

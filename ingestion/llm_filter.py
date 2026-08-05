@@ -49,6 +49,7 @@ _RESPONSE_SCHEMA = {
         "properties": {
             "index": {"type": "integer"},
             "is_transfer_rumor": {"type": "boolean"},
+            "status": {"type": "string", "enum": ["rumor", "confirmed"]},
             "players": {"type": "array", "items": {"type": "string"}},
             "current_club": {"type": "string", "nullable": True},
             "linked_clubs": {"type": "array", "items": {"type": "string"}},
@@ -56,7 +57,7 @@ _RESPONSE_SCHEMA = {
             "wage": {"type": "string", "nullable": True},
             "confidence": {"type": "number"},
         },
-        "required": ["index", "is_transfer_rumor", "players", "linked_clubs", "confidence"],
+        "required": ["index", "is_transfer_rumor", "status", "players", "linked_clubs", "confidence"],
     },
 }
 
@@ -85,6 +86,11 @@ Read each one in its original language, but always respond in English:
 Return one object per article with:
 - index: the article's number below
 - is_transfer_rumor: true/false
+- status: "confirmed" if the article states the transfer/signing/loan is
+  done, official, or announced (e.g. "unveiled", "signs five-year deal",
+  "completes move", "confirmed", a club/official announcement) -
+  "rumor" for anything still speculative (linked with, interest, bid,
+  "close to", talks, negotiations, "expected to")
 - players: every named player the rumor is about, as a list (almost
   always one name; more than one only for a genuine joint/multi-player
   deal covered in the same article)
@@ -124,6 +130,7 @@ class ExtractedRumor:
     link: str
     title: str
     is_transfer_rumor: bool
+    status: str = "rumor"
     players: list[str] = field(default_factory=list)
     current_club: str | None = None
     linked_clubs: list[str] = field(default_factory=list)
@@ -174,6 +181,7 @@ def _extract_batch(client: genai.Client, batch: list[RawArticle]) -> list[Extrac
                 link=article.link,
                 title=article.title,
                 is_transfer_rumor=bool(item.get("is_transfer_rumor", False)),
+                status=item.get("status") if item.get("status") in ("rumor", "confirmed") else "rumor",
                 players=item.get("players") or [],
                 current_club=item.get("current_club"),
                 linked_clubs=item.get("linked_clubs") or [],

@@ -35,7 +35,7 @@ def _format_players(cluster: ClusterDigest) -> str:
 
 def _format_clubs(cluster: ClusterDigest) -> str:
     if cluster.current_club and cluster.linked_clubs:
-        return f"{cluster.current_club} -> {', '.join(cluster.linked_clubs)}"
+        return f"{cluster.current_club} to {', '.join(cluster.linked_clubs)}"
     if cluster.linked_clubs:
         return f"linked with {', '.join(cluster.linked_clubs)}"
     if cluster.current_club:
@@ -68,8 +68,11 @@ def _latest_link(cluster: ClusterDigest) -> str | None:
 
 
 def _format_cluster(cluster: ClusterDigest) -> str:
+    header = f"**{_format_players(cluster)}** - {_format_clubs(cluster)}"
+    if cluster.outcome == "confirmed":
+        header = f"CONFIRMED - {header}"
     lines = [
-        f"**{_format_players(cluster)}** - {_format_clubs(cluster)}",
+        header,
         f"{confidence_label(cluster.confidence)} | Sources: {_format_sources(cluster)}",
     ]
     fees = _format_fees(cluster)
