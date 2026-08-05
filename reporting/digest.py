@@ -13,6 +13,9 @@ import os
 
 from scoring.credibility import confidence_label
 from storage.rumor_store import ClusterDigest
+from storage.report_state import get_last_report_time
+from storage.rumor_store import get_clusters_since
+
 
 # Clusters below this label are excluded from the digest entirely - a
 # single tier2 source with nothing corroborating it is noise at report
@@ -98,9 +101,6 @@ def build_digest(clusters: list[ClusterDigest], since: str) -> str:
 
 
 if __name__ == "__main__":
-    from storage.report_state import get_last_report_time
-    from storage.rumor_store import get_clusters_since
-
     since = get_last_report_time()
     clusters = get_clusters_since(since)
     print(f"{len(clusters)} cluster(s) updated since {since}\n")
