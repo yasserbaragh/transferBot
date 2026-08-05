@@ -18,9 +18,14 @@ from ingestion.llm_filter import extract_rumors
 from ingestion.relevance_filter import filter_transfer_related
 from ingestion.rss_fetcher import fetch_all_sources
 
-# Small, fast, good enough for short news snippets. Override via env var
-# without touching code if a different local model is ever preferred.
-EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+# Multilingual so a Spanish/German/Italian/French report and an English
+# report of the same rumor still embed close enough to cluster together -
+# rumor.title (still in its source language) feeds into _rumor_text below
+# alongside the already English-normalized players/clubs, so the model
+# needs to handle more than just English. Small, fast, good enough for
+# short news snippets. Override via env var without touching code if a
+# different local model is ever preferred.
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
 
 _model: SentenceTransformer | None = None
 

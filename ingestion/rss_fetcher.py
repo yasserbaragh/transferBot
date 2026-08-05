@@ -15,12 +15,15 @@ from dateutil import parser as dateutil_parser
 SOURCES_PATH = Path(__file__).resolve().parent.parent / "config" / "sources.yaml"
 
 ALLOWED_TIERS = {"tier1", "tier2"}
+ALLOWED_LANGUAGES = {"en", "es", "de", "it", "fr"}
+DEFAULT_LANGUAGE = "en"
 
 
 @dataclass
 class RawArticle:
     source_name: str
     source_tier: str
+    language: str
     title: str
     link: str
     published: datetime | None
@@ -38,6 +41,13 @@ def load_sources(path: Path = SOURCES_PATH) -> list[dict]:
             raise ValueError(
                 f"source {source.get('name')!r} has invalid tier {tier!r}, "
                 f"expected one of {sorted(ALLOWED_TIERS)}"
+            )
+
+        language = source.get("language", DEFAULT_LANGUAGE)
+        if language not in ALLOWED_LANGUAGES:
+            raise ValueError(
+                f"source {source.get('name')!r} has invalid language {language!r}, "
+                f"expected one of {sorted(ALLOWED_LANGUAGES)}"
             )
 
     return sources
@@ -76,6 +86,7 @@ def fetch_source(source: dict) -> list[RawArticle]:
             RawArticle(
                 source_name=source["name"],
                 source_tier=source["tier"],
+                language=source.get("language", DEFAULT_LANGUAGE),
                 title=entry.get("title", "").strip(),
                 link=entry.get("link", "").strip(),
                 published=_parse_published(entry),

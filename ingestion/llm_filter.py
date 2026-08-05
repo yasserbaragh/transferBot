@@ -71,6 +71,17 @@ player, set is_transfer_rumor to false even if it's otherwise
 transfer-related (e.g. "5 players Arsenal could sign" with no names
 given yet is not a rumor for our purposes).
 
+Articles may be written in English, Spanish, German, Italian, or French.
+Read each one in its original language, but always respond in English:
+- players / current_club / linked_clubs: use the common English form of
+  player and club names (e.g. "Bayern München" -> "Bayern Munich", "FC
+  Bayern" -> "Bayern Munich"), not a transliteration or the source
+  language's own spelling, so the same person/club is named consistently
+  no matter which source reported it
+- fee / wage: normalize to a plain figure with its currency symbol
+  (e.g. German "80,5 Mio. €" -> "€80.5m"), not the source's original
+  number formatting
+
 Return one object per article with:
 - index: the article's number below
 - is_transfer_rumor: true/false

@@ -3,37 +3,99 @@
 # tier1 = trusted journalist / insider outlet (e.g. Fabrizio Romano, CaughtOffside)
 # tier2 = general news aggregator (e.g. BBC, Guardian, Marca)
 #
+# language = ISO 639-1 code for the feed's article language (en, es, de,
+# it, fr, ...). Optional, defaults to "en" if omitted. Non-English
+# sources skip the English keyword pre-filter (ingestion/relevance_filter.py)
+# and go straight to the LLM extraction step instead, since a keyword
+# regex can't do relevance filtering in a language it isn't written for.
+#
 # Fill in / confirm URLs marked TODO before running.
 
 sources:
   - name: caughtoffside
     url: https://caughtoffside.com/feed
     tier: tier1
+    language: en
 
   - name: fabrizio_romano_daily_briefing
     url: https://thedailybriefing.io/feed
     tier: tier1
+    language: en
+
+  - name: rmcMercato
+    url: https://rmcsport.bfmtv.com/rss/football/transferts/
+    tier: tier1
+    language: fr
+
+  - name: transfermarketUk
+    url: https://www.transfermarkt.co.uk/rss/news
+    tier: tier1
+    language: en
+
+  - name: transfermarketIt
+    url: https://www.transfermarkt.it/rss/news
+    tier: tier1
+    language: it
+
+  - name: transfermarketDe
+    url: https://www.transfermarkt.de/rss/news
+    tier: tier1
+    language: de
+
+  - name: transfermarketEs
+    url: https://www.transfermarkt.es/rss/news
+    tier: tier1
+    language: es
 
   - name: bbc_sport_football
     url: http://feeds.bbci.co.uk/sport/football/rss.xml
     tier: tier2
+    language: en
 
   - name: guardian_football
     url: https://www.theguardian.com/football/rss
     tier: tier2
+    language: en
 
   - name: 90 min
     url: https://www.90min.com/posts.rss
     tier: tier2
+    language: en
 
   - name: world soccer
     url: https://www.worldsoccer.com/feed
     tier: tier2
+    language: en
 
   - name: marca
     url: https://e00-marca.uecdn.es/rss/en/index.xml
     tier: tier2
+    language: en
 
   - name: footballFancast
     url: https://www.footballfancast.com/feed/
     tier: tier2
+    language: en
+
+  - name: rmc
+    url: https://rmcsport.bfmtv.com/rss/football/
+    tier: tier2
+    language: fr
+
+  - name: 101greatGoals
+    url: https://www.101greatgoals.com/feed/
+    tier: tier2
+    language: en
+
+  - name: soccerNews
+    url: https://www.soccernews.com/feed/
+    tier: tier2
+    language: en
+
+  # Example of adding a native-language source once you have a real,
+  # confirmed feed URL for it (e.g. Marca's Spanish edition, Kicker,
+  # Calciomercato, Gazzetta dello Sport) - just set tier + language:
+  # - name: marca_es
+  #   url: TODO
+  #   tier: tier2
+  #   language: es
