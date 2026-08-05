@@ -16,6 +16,7 @@ per-request overhead N times.
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
@@ -48,35 +49,61 @@ _RESPONSE_SCHEMA = {
         "properties": {
             "index": {"type": "integer"},
             "is_transfer_rumor": {"type": "boolean"},
-            "player": {"type": "string", "nullable": True},
-            "clubs": {"type": "array", "items": {"type": "string"}},
+            "players": {"type": "array", "items": {"type": "string"}},
+            "current_club": {"type": "string", "nullable": True},
+            "linked_clubs": {"type": "array", "items": {"type": "string"}},
             "fee": {"type": "string", "nullable": True},
             "wage": {"type": "string", "nullable": True},
             "confidence": {"type": "number"},
         },
-        "required": ["index", "is_transfer_rumor", "clubs", "confidence"],
+        "required": ["index", "is_transfer_rumor", "players", "linked_clubs", "confidence"],
     },
 }
 
 _PROMPT_TEMPLATE = """You are filtering football news for genuine transfer rumors/news.
 
 For each numbered article below, decide if it is actually about a
-transfer, loan, signing, contract extension, or transfer bid/rumor -
-not a match report, injury update, off-pitch story, or unrelated club
-news.
+transfer, loan, signing, contract extension, or transfer bid/rumor for
+one or more NAMED players - not a match report, injury update,
+off-pitch story, unrelated club news, or a general roundup/preview that
+never names a specific player. If the article doesn't name a specific
+player, set is_transfer_rumor to false even if it's otherwise
+transfer-related (e.g. "5 players Arsenal could sign" with no names
+given yet is not a rumor for our purposes).
 
 Return one object per article with:
 - index: the article's number below
 - is_transfer_rumor: true/false
-- player: the main player's name if mentioned, else null
-- clubs: list of club names involved (empty list if none)
+- players: every named player the rumor is about, as a list (almost
+  always one name; more than one only for a genuine joint/multi-player
+  deal covered in the same article)
+- current_club: the player's club at the time of the article, if
+  stated, else null
+- linked_clubs: clubs reported as interested in, bidding for, or the
+  likely/agreed destination for the player - never include
+  current_club in this list
 - fee: reported transfer fee if mentioned, as written in the text, else null
 - wage: reported wage/salary if mentioned, else null
-- confidence: 0.0-1.0, how confident you are this is a genuine transfer rumor
+- confidence: 0.0-1.0, how confident you are this is a genuine transfer
+  rumor about the named player(s)
 
 Articles:
 {articles}
 """
+
+# Some source feeds contain mis-decoded currency symbols (mojibake), so a
+# fee sometimes arrives as e.g. "#80m" or "•100m" instead of "£80m". We
+# can't reliably guess which currency symbol was intended, so rather than
+# display a wrong glyph we just strip a garbled leading symbol and keep the
+# digits - "#80m" -> "80m". Symbols we trust (£/€/$) are left alone.
+_GARBLED_FEE_PREFIX_RE = re.compile(r"^[^\w£€$]+(?=\d)")
+
+
+def _sanitize_fee(fee: str | None) -> str | None:
+    if not fee:
+        return fee
+    cleaned = _GARBLED_FEE_PREFIX_RE.sub("", fee.strip())
+    return cleaned or None
 
 
 @dataclass
@@ -86,8 +113,9 @@ class ExtractedRumor:
     link: str
     title: str
     is_transfer_rumor: bool
-    player: str | None = None
-    clubs: list[str] = field(default_factory=list)
+    players: list[str] = field(default_factory=list)
+    current_club: str | None = None
+    linked_clubs: list[str] = field(default_factory=list)
     fee: str | None = None
     wage: str | None = None
     confidence: float = 0.0
@@ -135,9 +163,10 @@ def _extract_batch(client: genai.Client, batch: list[RawArticle]) -> list[Extrac
                 link=article.link,
                 title=article.title,
                 is_transfer_rumor=bool(item.get("is_transfer_rumor", False)),
-                player=item.get("player"),
-                clubs=item.get("clubs") or [],
-                fee=item.get("fee"),
+                players=item.get("players") or [],
+                current_club=item.get("current_club"),
+                linked_clubs=item.get("linked_clubs") or [],
+                fee=_sanitize_fee(item.get("fee")),
                 wage=item.get("wage"),
                 confidence=float(item.get("confidence", 0.0)),
             )
@@ -154,7 +183,10 @@ def extract_rumors(articles: list[RawArticle]) -> list[ExtractedRumor]:
             all_extracted.extend(_extract_batch(client, batch))
         except Exception as exc:
             print(f"[error] batch starting at index {start}: {exc}")
-    return [e for e in all_extracted if e.is_transfer_rumor]
+    # Belt-and-suspenders alongside the prompt instruction: a rumor with no
+    # named player isn't actionable for this pipeline, so drop it here too
+    # even if the model marked it is_transfer_rumor=true anyway.
+    return [e for e in all_extracted if e.is_transfer_rumor and e.players]
 
 
 if __name__ == "__main__":
@@ -165,6 +197,6 @@ if __name__ == "__main__":
     print(f"{len(rumors)} confirmed transfer rumors\n")
     for r in rumors[:10]:
         print(
-            f"[{r.source_tier}] {r.player} -> {r.clubs} "
+            f"[{r.source_tier}] {' & '.join(r.players)} - {r.current_club} -> {r.linked_clubs} "
             f"(fee={r.fee}, conf={r.confidence:.2f}) - {r.title}"
         )

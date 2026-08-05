@@ -37,7 +37,7 @@ def run_pipeline() -> None:
         for r, (cluster_id, is_new) in zip(rumors, results):
             label = "NEW cluster" if is_new else f"attached to cluster {cluster_id}"
             print(
-                f"[{r.source_tier}] {r.player} -> {r.clubs} "
+                f"[{r.source_tier}] {' & '.join(r.players)} - {r.current_club} -> {r.linked_clubs} "
                 f"(fee={r.fee}, conf={r.confidence:.2f}) - {label} - {r.title}"
             )
 
@@ -54,7 +54,7 @@ def _deliver_report() -> None:
         print("no cluster updates since last report - skipping delivery\n")
         return
 
-    digest = build_digest(clusters)
+    digest = build_digest(clusters, since)
     if send_digest(digest):
         set_last_report_time()
         print(f"report sent - {len(clusters)} cluster(s) - last_report_at updated\n")

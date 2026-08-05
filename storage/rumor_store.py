@@ -8,6 +8,7 @@ close match creates a brand-new cluster ("genuinely new rumor").
 
 import json
 import sqlite3
+import unicodedata
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -31,8 +32,9 @@ RECENT_WINDOW_DAYS = 14
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS rumor_clusters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    player TEXT,
-    clubs TEXT NOT NULL,
+    players TEXT NOT NULL,
+    current_club TEXT,
+    linked_clubs TEXT NOT NULL,
     representative_text TEXT NOT NULL,
     embedding BLOB,
     first_seen TEXT NOT NULL,
@@ -60,9 +62,29 @@ CREATE TABLE IF NOT EXISTS rumor_sightings (
 # that's known. Nothing writes to this column yet.
 
 
+def _migrate_legacy_schema(path: Path) -> None:
+    """If a DB from before the players/current_club/linked_clubs schema
+    exists, move it aside rather than altering it in place - it was built
+    from the old single `player` string field so there's nothing sane to
+    migrate row-by-row, and this way old data isn't lost, just archived."""
+    if not path.exists():
+        return
+    conn = sqlite3.connect(path)
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(rumor_clusters)").fetchall()}
+    finally:
+        conn.close()
+    if columns and "players" not in columns:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        backup = path.with_name(f"{path.stem}.legacy-{stamp}{path.suffix}")
+        path.rename(backup)
+        print(f"[migrate] old rumor_clusters schema detected - moved {path.name} to {backup.name}, starting fresh")
+
+
 @contextmanager
 def _connect(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_schema(path)
     conn = sqlite3.connect(path)
     try:
         conn.execute("PRAGMA journal_mode=WAL")
@@ -71,6 +93,24 @@ def _connect(path: Path):
         conn.commit()
     finally:
         conn.close()
+
+
+def _normalize_key(text: str) -> str:
+    stripped = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    return stripped.lower().strip()
+
+
+def _merge_names(existing: list[str], new: list[str]) -> list[str]:
+    """Union two name lists, treating case/accent variants of the same
+    name (e.g. "Bruno Guimaraes" vs "Bruno Guimarães") as duplicates."""
+    seen = {_normalize_key(x) for x in existing}
+    merged = list(existing)
+    for item in new:
+        key = _normalize_key(item)
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(item)
+    return merged
 
 
 def _now() -> str:
@@ -137,13 +177,14 @@ def _create_cluster(conn: sqlite3.Connection, rumor: ExtractedRumor, embedding: 
     cursor = conn.execute(
         """
         INSERT INTO rumor_clusters
-            (player, clubs, representative_text, embedding, first_seen,
-             last_updated, confidence, tiers_seen)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (players, current_club, linked_clubs, representative_text, embedding,
+             first_seen, last_updated, confidence, tiers_seen)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            rumor.player,
-            json.dumps(rumor.clubs),
+            json.dumps(rumor.players),
+            rumor.current_club,
+            json.dumps(rumor.linked_clubs),
             rumor.title,
             _pack_embedding(embedding),
             now,
@@ -161,13 +202,26 @@ def _create_cluster(conn: sqlite3.Connection, rumor: ExtractedRumor, embedding: 
 def _attach_sighting(conn: sqlite3.Connection, cluster_id: int, rumor: ExtractedRumor) -> None:
     now = _now()
     row = conn.execute(
-        "SELECT tiers_seen FROM rumor_clusters WHERE id = ?", (cluster_id,)
+        "SELECT tiers_seen, players, current_club, linked_clubs FROM rumor_clusters WHERE id = ?",
+        (cluster_id,),
     ).fetchone()
     tiers_seen = json.loads(row[0])
     tiers_seen.append(rumor.source_tier)
+
+    # A new sighting can name the player slightly differently, or only
+    # mention a subset of the clubs already on record - merge rather than
+    # overwrite so the cluster keeps everything reported about it so far.
+    players = _merge_names(json.loads(row[1]), rumor.players)
+    current_club = row[2] or rumor.current_club
+    linked_clubs = _merge_names(json.loads(row[3]), rumor.linked_clubs)
+
     conn.execute(
-        "UPDATE rumor_clusters SET last_updated = ?, tiers_seen = ? WHERE id = ?",
-        (now, json.dumps(tiers_seen), cluster_id),
+        """
+        UPDATE rumor_clusters
+        SET last_updated = ?, tiers_seen = ?, players = ?, current_club = ?, linked_clubs = ?
+        WHERE id = ?
+        """,
+        (now, json.dumps(tiers_seen), json.dumps(players), current_club, json.dumps(linked_clubs), cluster_id),
     )
     _insert_sighting(conn, cluster_id, rumor, now)
     _recompute_confidence(conn, cluster_id)
@@ -209,8 +263,9 @@ class SightingSummary:
 @dataclass
 class ClusterDigest:
     id: int
-    player: str | None
-    clubs: list[str]
+    players: list[str]
+    current_club: str | None
+    linked_clubs: list[str]
     confidence: float
     tiers_seen: list[str]
     first_seen: str
@@ -226,7 +281,7 @@ def get_clusters_since(since: str, path: Path = DB_PATH) -> list[ClusterDigest]:
     with _connect(path) as conn:
         cluster_rows = conn.execute(
             """
-            SELECT id, player, clubs, confidence, tiers_seen, first_seen, last_updated
+            SELECT id, players, current_club, linked_clubs, confidence, tiers_seen, first_seen, last_updated
             FROM rumor_clusters
             WHERE last_updated >= ?
             ORDER BY confidence DESC
@@ -248,12 +303,13 @@ def get_clusters_since(since: str, path: Path = DB_PATH) -> list[ClusterDigest]:
             clusters.append(
                 ClusterDigest(
                     id=cluster_id,
-                    player=row[1],
-                    clubs=json.loads(row[2]),
-                    confidence=row[3],
-                    tiers_seen=json.loads(row[4]),
-                    first_seen=row[5],
-                    last_updated=row[6],
+                    players=json.loads(row[1]),
+                    current_club=row[2],
+                    linked_clubs=json.loads(row[3]),
+                    confidence=row[4],
+                    tiers_seen=json.loads(row[5]),
+                    first_seen=row[6],
+                    last_updated=row[7],
                     sightings=[
                         SightingSummary(
                             source_name=s[0], source_tier=s[1], link=s[2],

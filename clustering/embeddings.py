@@ -8,6 +8,7 @@ piece, built on top of this.
 """
 
 import os
+import unicodedata
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -34,8 +35,19 @@ def _get_model() -> SentenceTransformer:
     return _model
 
 
+def _strip_accents(text: str) -> str:
+    # So "Guimaraes" and "Guimarães" (or "Vinicius"/"Vinícius") embed close
+    # enough to cluster together instead of fragmenting into separate
+    # rumors just because different outlets spell the name differently.
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in normalized if not unicodedata.combining(c))
+
+
 def _rumor_text(rumor: ExtractedRumor) -> str:
-    parts = [rumor.player or "", " to ".join(rumor.clubs), rumor.title]
+    players = _strip_accents(" & ".join(rumor.players))
+    club_parts = ([rumor.current_club] if rumor.current_club else []) + rumor.linked_clubs
+    clubs = _strip_accents(" to ".join(club_parts))
+    parts = [players, clubs, rumor.title]
     return " - ".join(p for p in parts if p)
 
 
