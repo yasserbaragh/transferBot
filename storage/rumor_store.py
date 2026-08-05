@@ -63,10 +63,9 @@ CREATE TABLE IF NOT EXISTS rumor_sightings (
 
 
 def _migrate_legacy_schema(path: Path) -> None:
-    """If a DB from before the players/current_club/linked_clubs schema
-    exists, move it aside rather than altering it in place - it was built
-    from the old single `player` string field so there's nothing sane to
-    migrate row-by-row, and this way old data isn't lost, just archived."""
+    """Move an incompatible DB aside instead of altering it in place -
+    there's nothing sane to migrate row-by-row, so this keeps the old
+    data around as a backup instead of losing it."""
     if not path.exists():
         return
     conn = sqlite3.connect(path)

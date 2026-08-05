@@ -29,13 +29,12 @@ def compute_confidence(sightings: list[tuple[str, str, float]]) -> float:
     Confidence is driven by corroboration - how many *distinct* sources,
     and which tiers, are reporting the same rumor - not by the LLM's own
     self-rated confidence. That self-rating measures "is this text really
-    about a transfer" (extraction confidence), which isn't the same thing
-    as "is this rumor credible", and real-world models tend to report it
-    near 1.0 for almost everything, which is why a formula built around it
-    used to peg nearly every cluster at 100%. It's only used here as a
-    ceiling: a very low extraction confidence caps how high corroboration
-    alone can push the score, since a shaky extraction shouldn't read as
-    a well-sourced rumor no matter how many sightings pile up.
+    about a transfer" (extraction confidence), not "is this rumor
+    credible", and models tend to report it near 1.0 for almost anything.
+    It's only used here as a ceiling: a very low extraction confidence
+    caps how high corroboration alone can push the score, since a shaky
+    extraction shouldn't read as a well-sourced rumor no matter how many
+    sightings pile up.
     """
     if not sightings:
         return 0.0
