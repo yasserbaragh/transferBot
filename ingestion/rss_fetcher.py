@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import feedparser
+import requests
 import yaml
 from dateutil import parser as dateutil_parser
 
@@ -67,9 +68,26 @@ def _parse_published(entry) -> datetime | None:
 
 
 def fetch_source(source: dict) -> list[RawArticle]:
-    parsed = feedparser.parse(source["url"])
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/126.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
+    }
+    try:
+        response = requests.get(source["url"], headers=headers, timeout=20)
+    except requests.RequestException as exc:
+        print(f"[error] {source['name']}: {exc}")
+        return []
 
-    status = getattr(parsed, "status", None)
+    status = response.status_code
+    if status != 200:
+        print(f"[warn] {source['name']}: HTTP {status}, check URL/blocking/UA")
+        return []
+
+    parsed = feedparser.parse(response.content)
     bozo = getattr(parsed, "bozo", 0)
     bozo_exc = getattr(parsed, "bozo_exception", None)
     print(

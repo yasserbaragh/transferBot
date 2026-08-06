@@ -22,7 +22,6 @@ RUN_INTERVAL_MINUTES = 30
 def run_pipeline() -> None:
     all_articles = fetch_all_sources()
     new_articles = filter_new(all_articles)
-    mark_seen(new_articles)
 
     print(f"\n{len(all_articles)} fetched, {len(new_articles)} new since last run")
 
@@ -30,12 +29,22 @@ def run_pipeline() -> None:
         print("nothing new - skipping LLM step\n")
     else:
         candidates = filter_transfer_related(new_articles)
+        candidate_links = {a.link for a in candidates if a.link}
+        filtered_out = [a for a in new_articles if a.link and a.link not in candidate_links]
+        mark_seen(filtered_out)
+
         print(f"{len(candidates)} passed the keyword filter, sending to Gemini...")
 
-        rumors = extract_rumors(candidates)
+        try:
+            rumors = extract_rumors(candidates)
+        except Exception as exc:
+            print(f"[error] extract_rumors failed: {exc}")
+            return
+
         print(f"{len(rumors)} confirmed transfer rumors, embedding + matching...\n")
 
         results = save_rumors(rumors)
+        mark_seen(candidates)
         for r, (cluster_id, is_new) in zip(rumors, results):
             label = "NEW cluster" if is_new else f"attached to cluster {cluster_id}"
             print(
