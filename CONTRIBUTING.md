@@ -13,5 +13,3 @@ Thanks for wanting to help out. A few ground rules before you open a pull reques
 - **Fast, reliable sources.** If you know outlets that break transfer news early and get it right, adding them helps everyone. Quality and speed matter more than quantity here.
 - **Better filtering for what's actually trustworthy.** The more it can tell a solid report apart from a shaky rumor or clickbait, the more useful it is. Ideas or improvements here are always welcome.
 - **More leagues, more languages, more of the world.** Right now this mostly follows Europe's top five leagues. Coverage of other leagues and countries, in their own languages, would make this a lot more useful to a lot more people.
-
-That's it for now.
